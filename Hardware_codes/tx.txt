@@ -1,0 +1,209 @@
+
+#include <Wire.h>
+#include "MAX30105.h"
+#include <LiquidCrystal_I2C.h>
+#include <LiquidCrystal.h>
+#include "HX711.h"
+#include <DHT.h>  
+#define DHTPIN A1 
+#define Emergency_button  8
+#define DOUT  3
+#define CLK  2
+int annalogpin[] = {A0,A2};
+DHT dht(DHTPIN, DHT11);
+HX711 scale;
+
+float calibration_factor = 1000; 
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+MAX30105 particleSensor;
+int sentT;
+int pre_sec,sec,bpm,pressure,highPres,lowPres,presSEC,h,temp,gasSensor,gasSensorP,gasSensorF;
+bool bpstart,prmf,buttonStat;
+void setup()
+{
+  Serial.begin(9600);
+  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) 
+  {
+    while (1);
+  }
+  particleSensor.setup(); 
+  particleSensor.setPulseAmplitudeRed(0x0A); 
+  particleSensor.setPulseAmplitudeGreen(0); 
+  lcd.init();   
+  lcd.backlight(); 
+  lcd.setCursor(0, 0);
+  lcd.print("  Smart suit  ");
+  lcd.setCursor(0, 1);
+  lcd.print("                   ");
+  delay(1000);
+  lcd.clear();
+  scale.begin(DOUT, CLK);
+  scale.set_scale();
+  scale.tare(); 
+  long zero_factor = scale.read_average(); 
+  scale.set_scale(calibration_factor);
+  dht.begin();
+  pinMode(Emergency_button,INPUT_PULLUP);
+  gasSensorP=parameterRead(0, 1000);
+  if(gasSensorP>200)
+  {
+    gasSensorP-200;
+  }
+}
+
+void loop()
+{
+  scale.set_scale(calibration_factor); 
+  pressure=scale.get_units();
+  h = dht.readHumidity();
+  temp=dht.readTemperature();
+  if(pressure<100)
+  {
+    prmf=0;
+  }
+  if(pressure>100)
+  {
+    presSEC++;
+    if(presSEC>30)
+    {
+      prmf=1;
+      presSEC=0;
+    }
+    if(prmf==0)
+    {
+      highPres=pressure/8;
+      lowPres=(highPres*10)/15;
+    } 
+  }
+  long irValue = particleSensor.getIR();
+  if(irValue>50000)
+  {
+    pre_sec++;
+    if(pre_sec>=3)
+    {
+      bpstart=1;
+    }
+  }
+  if(bpstart==1)
+  {
+    sec++;
+  }
+  if(sec>59)
+  {
+    sec=0;
+    if(irValue>50000)
+    {
+      bpm=(irValue/1000)-4;
+    }
+    else if(irValue<5000)
+    {
+      bpm=(irValue/1000)+((irValue%1000)/100)+(((irValue%1000)%100)/10)+(((irValue%1000)%100)%10);
+    }
+    if(bpm>99)
+    {
+      bpm=99;
+    }
+    bpstart=0;
+  }
+  buttonStat=digitalRead(Emergency_button);
+  gasSensor=(parameterRead(0, 10));
+//  if(gasSensor>50)
+//  {
+//    gasSensorF= gasSensor-50;
+//  }
+  gasSensorF= gasSensor;
+  lcd.setCursor(0, 0);
+  WriteIntToLCD2digit(sec);
+  lcd.print(" ");
+  WriteIntToLCD2digit(bpm);
+  lcd.print(" ");
+  WriteIntToLCD3digit(highPres);
+  lcd.print("/");
+  WriteIntToLCD2digit(lowPres);
+  lcd.print("mmHg");
+  lcd.setCursor(0, 1);
+  WriteIntToLCD2digit(h);
+  lcd.print("% ");
+  WriteIntToLCD2digit(temp);
+  lcd.print(char(0xDF));
+  lcd.print("C ");//9
+  if(gasSensorF<200)
+  {
+    lcd.print("G-0");
+  }
+  else if(gasSensorF>=200)
+  {
+    lcd.print("G-1");
+  }
+  lcd.print(" ");
+  lcd.print(buttonStat);
+  delay(500);
+  sentT++;
+  if(sentT>5)
+  {
+    sentT=0;
+    Serial.write('*');
+    Send2IntToSerial(bpm);
+    Send3IntToSerial(highPres);
+    Send2IntToSerial(lowPres);
+    Send2IntToSerial(h);
+    Send2IntToSerial(temp);
+    Send3IntToSerial(gasSensorF);
+    Serial.print(buttonStat);
+    Serial.write('#');
+  }
+}
+void WriteIntToLCD4digit(unsigned int dat)
+{
+  lcd.print(dat/1000);
+  lcd.print((dat%1000)/100);
+  lcd.print(((dat%1000)%100)/10);
+  lcd.print(((dat%1000)%100)%10);
+}
+void WriteIntToLCD3digit(unsigned int dat)
+{
+  lcd.print(dat/100);
+  lcd.print((dat%100)/10);
+  lcd.print((dat%100)%10);
+}
+void WriteIntToLCD2digit(unsigned int dat)
+{
+  lcd.print(dat/10);
+  lcd.print(dat%10);
+}
+void Send4IntToSerial(unsigned int dat)
+{
+  Serial.print(dat/1000);
+  Serial.print((dat%1000)/100);
+  Serial.print(((dat%1000)%100)/10);
+  Serial.print(((dat%1000)%100)%10);
+}
+void Send3IntToSerial(unsigned int dat)
+{
+  Serial.print(dat/100);
+  Serial.print((dat%100)/10);
+  Serial.print((dat%100)%10);
+}
+void Send2IntToSerial(unsigned int dat)
+{
+  Serial.print(dat/10);
+  Serial.print(dat%10);
+}
+int parameterRead(unsigned char ad, int sample)
+{
+  int i, Iadc, I_v;
+ // Iadc = 0; I_v = 0;
+    Iadc = 2; I_v = 0;
+  for (i = 0; i < sample; i++)
+  {
+    Iadc = analogRead(annalogpin[ad]);
+    if (Iadc > I_v)
+    {
+      I_v = Iadc;
+    }
+    delay(1);
+  }
+  return I_v;
+}

@@ -1,0 +1,193 @@
+#include "ThingSpeak.h"
+#include <LiquidCrystal_I2C.h>
+#include <ESP8266WiFi.h>
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+#define relay  D5
+
+unsigned long myChannelNumber = 720961;
+const char * myWriteAPIKey = "4MOXA1THSYVM9UMX";
+
+const char *ssid =  "electronics";
+const char *pass =  "wifihotspot";
+
+WiFiClient client;
+char inChar;
+char rx1[25];
+char rx2[25];
+char xy,y,cx;
+bool stringComplete = false;
+int  ult,ult2;
+int bpm,pressure,highPres,lowPres,h,temp,gasSensorF;
+int buttonStat;
+void setup()
+{
+  lcd.init();
+  lcd.backlight();
+  Serial.begin(9600);
+  Serial.print("Connecting...");
+  Serial.println(ssid);
+  pinMode(relay,OUTPUT);
+  digitalWrite(relay,LOW);
+  lcd.setCursor(0, 0);
+  lcd.print("   smart suit  ");
+  lcd.setCursor(0, 1);
+  lcd.print("              ");
+  Serial.print("Connecting...");
+  Serial.println(ssid);
+  WiFi.begin(ssid, pass);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.println(",");
+  }
+  Serial.println("Connected ok...");
+  ThingSpeak.begin(client);
+  lcd.clear();
+}
+void loop()
+{
+  if (stringComplete)
+  {
+    cx++;
+    if(cx>2)
+    {
+      bpm=((rx1[1]-48)*10)+(rx1[2]-48);
+      highPres=((rx1[3]-48)*100)+((rx1[4]-48)*10)+(rx1[5]-48);
+      lowPres=((rx1[6]-48)*10)+(rx1[7]-48);
+      h=((rx1[8]-48)*10)+(rx1[9]-48);
+      temp=((rx1[10]-48)*10)+(rx1[11]-48);
+      gasSensorF=((rx1[12]-48)*100)+((rx1[13]-48)*10)+(rx1[14]-48);
+      buttonStat=(rx1[15]-48);
+      for(y=0;y<=17;y++)
+      {
+        rx1[y]=0;
+      }
+      stringComplete = false;
+      inChar=0;
+      xy=0;
+      cx=0;
+    }  
+  }
+  lcd.setCursor(0, 0);
+  WriteIntToLCD2digit(bpm);
+  lcd.print(" ");
+  WriteIntToLCD3digit(highPres);
+  lcd.print("/");
+  WriteIntToLCD2digit(lowPres);
+  lcd.print("mmHg");
+  lcd.setCursor(0, 1);
+  WriteIntToLCD2digit(h);
+  lcd.print("% ");
+  WriteIntToLCD2digit(temp);
+  lcd.print(char(0xDF));
+  lcd.print("C ");//9
+  if(gasSensorF<200)
+  {
+    lcd.print("G-0");
+  }
+  else if(gasSensorF>=200)
+  {
+    lcd.print("G-1");
+  }
+  lcd.print(" ");
+  lcd.print(buttonStat);
+  ult2++;
+  if(ult2>15)
+  {
+    ult2=0;
+    ult++;
+  }
+  if (ult > 15)
+  {
+    digitalWrite(relay,HIGH);
+    delay(500);
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("UPLOADING");
+    delay(2000);
+    ThingSpeak. setField(1, bpm);
+    ThingSpeak. setField(2, highPres);
+    ThingSpeak. setField(3, lowPres);
+    ThingSpeak. setField(4, h);
+    ThingSpeak. setField(5, temp);
+    ThingSpeak. setField(6, gasSensorF);
+    ThingSpeak. setField(7, buttonStat);
+    int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+    if (x == 200)
+    {
+      lcd.setCursor(0, 1);
+      lcd.print("UPLOADED");
+      ult = 0;
+      delay(3000);
+      digitalWrite(relay,LOW);
+      delay(300);
+    }
+    else
+    {
+      lcd.setCursor(0, 1);
+      lcd.print("NW error");
+      lcd.setCursor(10, 1);
+      lcd.print(String(x));
+      delay(1500);
+      delay(1500);
+    }
+    lcd.clear();
+  }
+}
+int String_Compare(unsigned char src[], unsigned char dest[], unsigned char v)
+{
+  int i;
+  for (i = 0; i <= v && src[i] == dest[i]; i++);
+  return src[i] - dest[i];
+}
+
+void serialEvent()
+{
+  if(ult<13)
+  {
+    while (Serial.available())
+    {
+      inChar = (char)Serial.read();
+      rx1[xy]= inChar;
+      if(rx1[0]=='*')
+      {
+        xy++;
+      }
+      else if(rx1[0]!='*')
+      {
+        xy=0;
+      }
+      if (inChar == '#')
+      {
+        stringComplete = true;
+      }
+    }
+  }
+  
+}
+void WriteIntToLCD4digit(unsigned int dat)
+{
+  lcd.print(dat / 1000);
+  lcd.print((dat % 1000) / 100);
+  lcd.print(((dat % 1000) % 100) / 10);
+  lcd.print(((dat % 1000) % 100) % 10);
+}
+void WriteIntToLCD3digit(unsigned int dat)
+{
+  lcd.print(dat / 100);
+  lcd.print((dat % 100) / 10);
+  lcd.print((dat % 100) % 10);
+}
+void WriteIntToLCD2digit(unsigned int dat)
+{
+  lcd.print(dat / 10);
+  lcd.print(dat % 10);
+}
+/*
+ thinkspeak.com
+
+senthiljanani0501@gmail.com
+SDK500fdx
+
+*/
