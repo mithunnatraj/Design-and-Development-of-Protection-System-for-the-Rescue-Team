@@ -187,7 +187,5 @@ void WriteIntToLCD2digit(unsigned int dat)
 /*
  thinkspeak.com
 
-senthiljanani0501@gmail.com
-SDK500fdx
 
 */
